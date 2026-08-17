@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0B1210">
+  <meta name="description" content="Mihrab — an exact solar-day farz prayer clock and private, local-first salah notebook.">
+  <title>Mihrab — Farz Namaz Counter</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#today">Skip to today's prayers</a>
+
+  <div id="dawnReveal" class="dawn-reveal" aria-hidden="true">
+    <div class="dawn-slit"></div>
+    <p lang="ar" dir="rtl">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</p>
+  </div>
+
+  <div id="engineError" class="error-banner" role="alert" hidden>
+    Calendar engine error — do not trust these numbers
+  </div>
+
+  <header class="site-header" aria-label="Primary navigation">
+    <a class="brand" href="#top" aria-label="Mihrab home">
+      <svg viewBox="0 0 28 34" aria-hidden="true"><path d="M4 32V15C4 8 8 3 14 1c6 2 10 7 10 14v17M9 32V16c0-4 2-7 5-9 3 2 5 5 5 9v16"/></svg>
+      <span>MIHRAB</span>
+    </a>
+    <div class="header-actions">
+      <button id="syncPill" class="sync-pill" type="button" title="Cloud sync status">Local only</button>
+      <button id="settingsButton" class="icon-button" type="button" aria-label="Prayer time settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 8.95 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.58 15 1.7 1.7 0 0 0 3 14H3v-4h.08A1.7 1.7 0 0 0 4.6 8.95a1.7 1.7 0 0 0-.34-1.88L4.2 7l2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.58 1.7 1.7 0 0 0 10 3V3h4v.08a1.7 1.7 0 0 0 1.05 1.52 1.7 1.7 0 0 0 1.88-.34l.06-.06L19.82 7l-.06.06A1.7 1.7 0 0 0 19.42 9 1.7 1.7 0 0 0 21 10h.08v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
+      </button>
+      <button id="authButton" class="text-button" type="button">Sign in</button>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-glow" aria-hidden="true"></div>
+      <div class="hero-inner">
+        <p class="eyebrow">Farz since the first Dhuhr in Makkah</p>
+        <h1 id="hero-title" class="sr-only">Farz prayer slots since the first Dhuhr</h1>
+        <div id="ummahOdometer" class="odometer" aria-live="polite" aria-atomic="true">2,566,684</div>
+        <p class="hero-subline">27 Rajab convention <span>·</span> 27 Feb 621 CE <span>·</span> date commemorated, not certified</p>
+        <p id="elapsedLine" class="elapsed-line">Calculating exact elapsed days…</p>
+        <div id="prayerStatus" class="prayer-status" aria-live="polite">
+          <strong>Calculating today's sun…</strong>
+          <span>Please wait</span>
+        </div>
+        <p id="locationLine" class="location-line">Hyderabad, India · Asia/Kolkata</p>
+        <button class="link-button" type="button" data-scroll="#method">Why this date? <span aria-hidden="true">→</span></button>
+      </div>
+      <div class="scroll-mark" aria-hidden="true"><span></span></div>
+    </section>
+
+    <section id="today" class="section today-section" aria-labelledby="today-title">
+      <div class="section-heading on-light">
+        <div>
+          <p class="section-kicker">The next one is yours</p>
+          <h2 id="today-title">Today’s five</h2>
+        </div>
+        <p id="todayDate" class="section-aside"></p>
+      </div>
+      <div id="todayRows" class="prayer-list" aria-live="polite"></div>
+      <div id="startNotebookCard" class="start-card">
+        <div>
+          <strong>Your private notebook is not running yet.</strong>
+          <p>Nothing before you begin will be labelled “prayed.” Start with the salah that is open now.</p>
+        </div>
+        <button id="startNotebookButton" class="primary-button dark" type="button">Start noting from this salah <span aria-hidden="true">→</span></button>
+      </div>
+      <div id="tomorrowFajr" class="tomorrow-card" hidden></div>
+    </section>
+
+    <section id="taklif" class="section taklif-section" aria-labelledby="taklif-title">
+      <div class="section-heading">
+        <div>
+          <p class="section-kicker">Your accountability clock</p>
+          <h2 id="taklif-title">Your Taklif</h2>
+        </div>
+        <p class="section-aside">A personal estimate, never a fatwa</p>
+      </div>
+
+      <div class="taklif-grid">
+        <form id="taklifForm" class="panel form-panel">
+          <fieldset>
+            <legend>When were you born?</legend>
+            <label class="field">
+              <span>Full date of birth</span>
+              <input id="dobInput" name="dob" type="date" autocomplete="bday">
+            </label>
+            <div class="or-rule"><span>or, if you only know the year</span></div>
+            <label class="field">
+              <span>Birth year</span>
+              <input id="birthYearInput" name="birthYear" type="number" inputmode="numeric" min="1900" max="2026" placeholder="e.g. 1995">
+            </label>
+            <p id="dobEstimateNote" class="field-note" hidden>Estimated using 1 July — add your full date for exactness.</p>
+          </fieldset>
+
+          <fieldset>
+            <legend>Accountability begins</legend>
+            <div class="radio-cards">
+              <label><input type="radio" name="taklifMode" value="13solar" checked><span><strong>Age 13</strong><small>Solar years · average estimate</small></span></label>
+              <label><input type="radio" name="taklifMode" value="15lunar"><span><strong>15 lunar years</strong><small>Classical fallback · 5,316 days</small></span></label>
+              <label><input type="radio" name="taklifMode" value="custom"><span><strong>Exact date</strong><small>If the real date is known</small></span></label>
+            </div>
+            <label id="customPubertyField" class="field" hidden>
+              <span>Exact date accountability began</span>
+              <input id="customPubertyInput" name="customPuberty" type="date">
+            </label>
+            <p class="field-note">Physical puberty determines taklif. Age 13 is only a labelled average.</p>
+          </fieldset>
+
+          <details class="hayd-details">
+            <summary>Optional hayd exclusion</summary>
+            <div class="details-inner">
+              <label class="switch-row"><span><strong>Exclude estimated hayd days</strong><small>Off by default. These are never called missed or qada.</small></span><input id="haydToggle" type="checkbox" role="switch"></label>
+              <div id="haydFields" class="two-fields" hidden>
+                <label class="field"><span>Cycle length</span><input id="cycleDays" type="number" min="15" max="60" step="0.5" value="29.5"></label>
+                <label class="field"><span>Period days</span><input id="periodDays" type="number" min="1" max="15" step="0.5" value="7"></label>
+              </div>
+            </div>
+          </details>
+          <button class="primary-button" type="submit">Calculate my clock</button>
+        </form>
+
+        <div id="taklifResults" class="panel results-panel" aria-live="polite">
+          <p class="empty-state">Add your birth date to reveal your personal accountability clock.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="notebook" class="section notebook-section" aria-labelledby="notebook-title">
+      <div class="section-heading on-light">
+        <div>
+          <p class="section-kicker">Local-first · private by design</p>
+          <h2 id="notebook-title">Notebook</h2>
+        </div>
+        <p id="notingSince" class="section-aside">Not started</p>
+      </div>
+
+      <div id="localOnlyBanner" class="notice-banner">
+        <div><strong>Your record lives only on this device.</strong><span>Sign in to keep it in your own cloud account and see it on any device.</span></div>
+        <button class="secondary-button" type="button" data-open-auth>Sign in</button>
+      </div>
+      <div id="backupReminder" class="notice-banner backup" hidden>
+        <div><strong>Time for a small backup.</strong><span>A monthly CSV keeps a copy in your own hands.</span></div>
+        <button class="secondary-button" type="button" data-export>Download backup</button>
+      </div>
+
+      <div id="notebookEmpty" class="notebook-empty">
+        <div class="empty-arch" aria-hidden="true"></div>
+        <h3>A record begins with one prayer.</h3>
+        <p>Start from today. History remains history; the notebook only claims what you mark.</p>
+        <button class="primary-button dark" type="button" data-start>Start noting</button>
+      </div>
+
+      <div id="notebookContent" hidden>
+        <div id="notebookStats" class="stats-row"></div>
+        <div class="notebook-grid">
+          <div class="notebook-left">
+            <div class="subpanel">
+              <div class="subpanel-heading"><h3>Last seven days</h3><span>Tap a day to edit</span></div>
+              <div id="weekStrip" class="week-strip"></div>
+            </div>
+            <div class="subpanel data-actions">
+              <div><h3>Your data</h3><p>Keep a copy you control. CSV opens in any spreadsheet.</p></div>
+              <div class="button-row">
+                <button class="secondary-button" type="button" data-export>Export CSV</button>
+                <button id="deleteAccountButton" class="secondary-button danger" type="button" hidden>Delete account</button>
+                <button id="resetButton" class="secondary-button danger" type="button">Reset notebook</button>
+              </div>
+            </div>
+          </div>
+          <div class="calendar-panel subpanel">
+            <div class="calendar-nav">
+              <button id="calendarPrev" class="icon-button dark-icon" type="button" aria-label="Previous month">←</button>
+              <h3 id="calendarTitle"></h3>
+              <button id="calendarNext" class="icon-button dark-icon" type="button" aria-label="Next month">→</button>
+            </div>
+            <div class="calendar-weekdays" aria-hidden="true"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
+            <div id="monthCalendar" class="month-calendar"></div>
+            <div class="calendar-legend"><span><i class="prayed"></i>Prayed</span><span><i class="missed"></i>Missed</span><span><i class="qada"></i>Qada</span><span><i></i>No mark</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="method" class="section method-section" aria-labelledby="method-title">
+      <div class="method-wrap">
+        <p class="section-kicker">Method & honesty</p>
+        <h2 id="method-title">What the number means — and what it does not.</h2>
+        <article>
+          <span>01</span>
+          <div><h3>The first namaz</h3><p>Jibril <span class="honorific">عليه السلام</span> led the Prophet ﷺ at the Ka‘bah over two days, beginning with Dhuhr after zawal, then Asr, Maghrib, Isha and Fajr, repeated at the end times: “the time is between these two.” This chronology is reported from Ibn ‘Abbas in Abu Dawud.</p></div>
+        </article>
+        <article>
+          <span>02</span>
+          <div><h3>The date is a convention</h3><p>27 Rajab is commemorated, but no single agreed calendar day for Isra’ wal-Mi‘raj was transmitted. Historians place it roughly 1–1.5 years before Hijrah. Mihrab therefore locks 27 February 621 CE as an explicit convention, not a certified date. Moving within the scholarly window changes roughly one thousand slots in a total above 2.5 million.</p></div>
+        </article>
+        <article>
+          <span>03</span>
+          <div><h3>Leap years, exactly</h3><p id="leapMethodCopy">The engine walks real UTC calendar days. It never multiplies a rounded year by 365. Hijri years are shown only as context because prayer slots follow the solar day.</p></div>
+        </article>
+        <article>
+          <span>04</span>
+          <div><h3>Age 13 is an average</h3><p>Farz begins at physical puberty. Fifteen lunar years is a classical fallback; use the real date when known. These controls are transparent estimates and notes, not a fatwa.</p></div>
+        </article>
+        <div class="method-formula" aria-label="Counting formula">
+          <span>FIRST DAY</span><strong>4 prayers</strong><i>+</i><span>EVERY SOLAR DAY AFTER</span><strong>5 prayers</strong>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="footer-brand"><span>MIHRAB</span><small>A quiet record of what comes next.</small></div>
+    <p id="footerMethod">Epoch: 27 Feb 621 CE (27 Rajab convention) · Timezone: Asia/Kolkata · Numbers update when each prayer opens · Exact day arithmetic — no 365 shortcuts.</p>
+    <p id="privacyFooter">Your record never leaves this device until you sign in.</p>
+  </footer>
+
+  <dialog id="settingsDialog" class="modal">
+    <form id="settingsForm" method="dialog">
+      <div class="modal-head"><div><p class="section-kicker">Sun calculation</p><h2>Prayer time settings</h2></div><button class="modal-close" value="cancel" aria-label="Close settings">×</button></div>
+      <div class="modal-body">
+        <label class="field"><span>Indian city preset</span><select id="citySelect"></select></label>
+        <div class="two-fields">
+          <label class="field"><span>Latitude</span><input id="latInput" type="number" step="0.0001" min="-90" max="90" required></label>
+          <label class="field"><span>Longitude</span><input id="lngInput" type="number" step="0.0001" min="-180" max="180" required></label>
+        </div>
+        <div class="three-fields">
+          <label class="field"><span>Fajr angle</span><select id="fajrAngle"><option>18</option><option>15</option><option>12</option></select></label>
+          <label class="field"><span>Isha angle</span><select id="ishaAngle"><option>18</option><option>15</option><option>12</option></select></label>
+          <label class="field"><span>Asr</span><select id="asrFactor"><option value="1">Standard</option><option value="2">Hanafi</option></select></label>
+        </div>
+        <p class="field-note">Times use the equation of time, solar declination and your coordinates. Dhuhr is solar noon + 2 minutes. Default: Hyderabad, UTC+5:30.</p>
+        <label class="switch-row manual-switch"><span><strong>Enter today’s times manually</strong><small>Manual values override the solar result until switched off.</small></span><input id="manualTimesToggle" type="checkbox" role="switch"></label>
+        <div id="manualTimeFields" class="manual-time-grid" hidden>
+          <label class="field"><span>Fajr</span><input data-manual="fajr" type="time"></label>
+          <label class="field"><span>Dhuhr</span><input data-manual="dhuhr" type="time"></label>
+          <label class="field"><span>Asr</span><input data-manual="asr" type="time"></label>
+          <label class="field"><span>Maghrib</span><input data-manual="maghrib" type="time"></label>
+          <label class="field"><span>Isha</span><input data-manual="isha" type="time"></label>
+        </div>
+        <label class="switch-row"><span><strong>Prayer opening notifications</strong><small>Only while permission is granted by this browser.</small></span><input id="notificationToggle" type="checkbox" role="switch"></label>
+      </div>
+      <div class="modal-actions"><button class="secondary-button" value="cancel">Cancel</button><button id="saveSettingsButton" class="primary-button" value="default">Save settings</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="authDialog" class="modal auth-modal">
+    <div class="modal-head"><div><p class="section-kicker">Private cloud</p><h2 id="authTitle">Sign in to sync</h2></div><button class="modal-close" type="button" data-close-dialog="authDialog" aria-label="Close sign in">×</button></div>
+    <div id="cloudSetupPanel" class="modal-body" hidden>
+      <p class="modal-copy">This deployment has not been connected to Supabase. Add your project’s public URL and anon key. They are stored only in this browser; production owners should also set the constants at the top of <code>app.js</code>.</p>
+      <label class="field"><span>Supabase project URL</span><input id="cloudUrlInput" type="url" placeholder="https://your-project.supabase.co"></label>
+      <label class="field"><span>Supabase anon key</span><textarea id="cloudKeyInput" rows="4" spellcheck="false"></textarea></label>
+      <button id="saveCloudConfig" class="primary-button" type="button">Connect this deployment</button>
+    </div>
+    <div id="signInPanel" class="modal-body">
+      <p class="modal-copy">Your email receives a secure magic link. No password is stored by Mihrab.</p>
+      <form id="magicLinkForm">
+        <label class="field"><span>Email address</span><input id="emailInput" type="email" autocomplete="email" required placeholder="you@example.com"></label>
+        <button class="primary-button full" type="submit">Email me a magic link</button>
+      </form>
+      <div class="or-rule"><span>or</span></div>
+      <button id="googleSignIn" class="secondary-button full google-button" type="button">Continue with Google</button>
+      <p id="authMessage" class="form-message" aria-live="polite"></p>
+    </div>
+    <div id="signedInPanel" class="modal-body" hidden>
+      <p class="signed-in-email"></p>
+      <p class="modal-copy">Cloud sync is active. Your local cache remains available for offline use.</p>
+      <button id="signOutButton" class="secondary-button full" type="button">Sign out</button>
+    </div>
+  </dialog>
+
+  <dialog id="dayDialog" class="modal day-modal">
+    <div class="modal-head"><div><p class="section-kicker">Notebook entry</p><h2 id="dayDialogTitle"></h2></div><button class="modal-close" type="button" data-close-dialog="dayDialog" aria-label="Close day editor">×</button></div>
+    <div id="dayDialogRows" class="modal-body prayer-list compact"></div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden>
+    <span id="toastMessage"></span><button id="undoButton" type="button">Undo</button>
+  </div>
+
+  <noscript><div class="noscript">Mihrab needs JavaScript for exact calendar arithmetic and your local notebook.</div></noscript>
+</body>
+</html>

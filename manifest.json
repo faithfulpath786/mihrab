@@ -1,0 +1,21 @@
+{
+  "name": "Mihrab — Farz Namaz Counter",
+  "short_name": "Mihrab",
+  "description": "An exact farz prayer clock and private salah notebook.",
+  "id": "./",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0B1210",
+  "theme_color": "#0B1210",
+  "lang": "en-IN",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
