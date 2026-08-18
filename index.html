@@ -85,51 +85,63 @@
           <p class="section-kicker">Your accountability clock</p>
           <h2 id="taklif-title">Your Taklif</h2>
         </div>
-        <p class="section-aside">A personal estimate, never a fatwa</p>
+        <div class="heading-aside-wrap">
+          <p class="section-aside">A personal estimate, never a fatwa</p>
+          <button id="editTaklifButton" class="secondary-button compact-btn" type="button" hidden>Edit details</button>
+        </div>
       </div>
 
       <div class="taklif-grid">
-        <form id="taklifForm" class="panel form-panel">
-          <fieldset>
-            <legend>When were you born?</legend>
-            <label class="field">
-              <span>Full date of birth</span>
-              <input id="dobInput" name="dob" type="date" autocomplete="bday">
-            </label>
-            <div class="or-rule"><span>or, if you only know the year</span></div>
-            <label class="field">
-              <span>Birth year</span>
-              <input id="birthYearInput" name="birthYear" type="number" inputmode="numeric" min="1900" max="2026" placeholder="e.g. 1995">
-            </label>
-            <p id="dobEstimateNote" class="field-note" hidden>Estimated using 1 July — add your full date for exactness.</p>
-          </fieldset>
-
-          <fieldset>
-            <legend>Accountability begins</legend>
-            <div class="radio-cards">
-              <label><input type="radio" name="taklifMode" value="13solar" checked><span><strong>Age 13</strong><small>Solar years · average estimate</small></span></label>
-              <label><input type="radio" name="taklifMode" value="15lunar"><span><strong>15 lunar years</strong><small>Classical fallback · 5,316 days</small></span></label>
-              <label><input type="radio" name="taklifMode" value="custom"><span><strong>Exact date</strong><small>If the real date is known</small></span></label>
+        <div id="taklifFormContainer" class="taklif-form-container">
+          <form id="taklifForm" class="panel form-panel">
+            <div class="form-panel-head">
+              <h3>Accountability setup</h3>
+              <p>Enter your birth date once. It is saved locally and synced to your private account.</p>
             </div>
-            <label id="customPubertyField" class="field" hidden>
-              <span>Exact date accountability began</span>
-              <input id="customPubertyInput" name="customPuberty" type="date">
-            </label>
-            <p class="field-note">Physical puberty determines taklif. Age 13 is only a labelled average.</p>
-          </fieldset>
+            <fieldset>
+              <legend>When were you born?</legend>
+              <label class="field">
+                <span>Full date of birth</span>
+                <input id="dobInput" name="dob" type="date" autocomplete="bday">
+              </label>
+              <div class="or-rule"><span>or, if you only know the year</span></div>
+              <label class="field">
+                <span>Birth year</span>
+                <input id="birthYearInput" name="birthYear" type="number" inputmode="numeric" min="1900" max="2026" placeholder="e.g. 1995">
+              </label>
+              <p id="dobEstimateNote" class="field-note" hidden>Estimated using 1 July — add your full date for exactness.</p>
+            </fieldset>
 
-          <details class="hayd-details">
-            <summary>Optional hayd exclusion</summary>
-            <div class="details-inner">
-              <label class="switch-row"><span><strong>Exclude estimated hayd days</strong><small>Off by default. These are never called missed or qada.</small></span><input id="haydToggle" type="checkbox" role="switch"></label>
-              <div id="haydFields" class="two-fields" hidden>
-                <label class="field"><span>Cycle length</span><input id="cycleDays" type="number" min="15" max="60" step="0.5" value="29.5"></label>
-                <label class="field"><span>Period days</span><input id="periodDays" type="number" min="1" max="15" step="0.5" value="7"></label>
+            <fieldset>
+              <legend>Accountability begins</legend>
+              <div class="radio-cards">
+                <label><input type="radio" name="taklifMode" value="13solar" checked><span><strong>Age 13</strong><small>Solar years · average estimate</small></span></label>
+                <label><input type="radio" name="taklifMode" value="15lunar"><span><strong>15 lunar years</strong><small>Classical fallback · 5,316 days</small></span></label>
+                <label><input type="radio" name="taklifMode" value="custom"><span><strong>Exact date</strong><small>If the real date is known</small></span></label>
               </div>
+              <label id="customPubertyField" class="field" hidden>
+                <span>Exact date accountability began</span>
+                <input id="customPubertyInput" name="customPuberty" type="date">
+              </label>
+              <p class="field-note">Physical puberty determines taklif. Age 13 is only a labelled average.</p>
+            </fieldset>
+
+            <details class="hayd-details">
+              <summary>Optional hayd exclusion</summary>
+              <div class="details-inner">
+                <label class="switch-row"><span><strong>Exclude estimated hayd days</strong><small>Off by default. These are never called missed or qada.</small></span><input id="haydToggle" type="checkbox" role="switch"></label>
+                <div id="haydFields" class="two-fields" hidden>
+                  <label class="field"><span>Cycle length</span><input id="cycleDays" type="number" min="15" max="60" step="0.5" value="29.5"></label>
+                  <label class="field"><span>Period days</span><input id="periodDays" type="number" min="1" max="15" step="0.5" value="7"></label>
+                </div>
+              </div>
+            </details>
+            <div class="form-actions">
+              <button id="cancelTaklifEdit" class="secondary-button" type="button" hidden>Cancel</button>
+              <button class="primary-button" type="submit">Calculate my clock</button>
             </div>
-          </details>
-          <button class="primary-button" type="submit">Calculate my clock</button>
-        </form>
+          </form>
+        </div>
 
         <div id="taklifResults" class="panel results-panel" aria-live="polite">
           <p class="empty-state">Add your birth date to reveal your personal accountability clock.</p>

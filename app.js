@@ -340,12 +340,38 @@ let calendarCursor = (() => { const p = indiaNowParts(); return { year: p.year, 
 let openDayKey = null;
 let undoState = null;
 let undoTimer = null;
+let isEditingTaklif = false;
 
-function renderOdometer(number, animate = false) {
+function renderOdometer(number, animate = false, isInitialRoll = false) {
   const formatted = INDIAN_NUMBER.format(number);
   const host = $('#ummahOdometer');
+  if (!host) return;
   host.setAttribute('aria-label', `${formatted} farz prayer slots`);
-  if (!lastOdometer || !animate || formatted.length !== lastOdometer.length) {
+  const isReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  if (isInitialRoll && !isReducedMotion) {
+    let delayCounter = 0;
+    host.innerHTML = [...formatted].map(char => {
+      if (/\d/.test(char)) {
+        const targetNum = Number(char);
+        const reel = [];
+        for (let i = 0; i <= 9; i++) reel.push((i + targetNum) % 10);
+        reel[reel.length - 1] = targetNum;
+        const targetY = -((reel.length - 1) * 100);
+        const colDelay = (delayCounter * 0.07).toFixed(2);
+        delayCounter++;
+        return `<span class="digit-window"><span class="digit-strip reel-roll" style="--reel-target-y:${targetY}%;--reel-delay:${colDelay}s;--reel-duration:1.25s;">${reel.map(d => `<span>${d}</span>`).join('')}</span></span>`;
+      }
+      return `<span class="odo-separator">${char}</span>`;
+    }).join('');
+    host.classList.remove('pulse');
+    void host.offsetWidth;
+    setTimeout(() => host.classList.add('pulse'), 1250);
+    lastOdometer = formatted;
+    return;
+  }
+
+  if (!lastOdometer || !animate || formatted.length !== lastOdometer.length || isReducedMotion) {
     host.innerHTML = [...formatted].map(char => /\d/.test(char)
       ? `<span class="digit-window"><span class="digit-strip"><span>${char}</span></span></span>`
       : `<span class="odo-separator">${char}</span>`).join('');
@@ -418,12 +444,11 @@ function startPrayerIndex() {
 }
 
 function prayerIsLoggable(key, prayer, snapshot = clockSnapshot()) {
-  const startKey = startedDateKey();
-  if (!startKey) return false;
-  if (dateKeyCompare(key, startKey) < 0 || dateKeyCompare(key, snapshot.key) > 0) return false;
-  const index = PRAYERS.indexOf(prayer);
-  if (key === startKey && index < startPrayerIndex()) return false;
-  if (key === snapshot.key && index >= snapshot.opened) return false;
+  if (key === snapshot.key) {
+    const index = PRAYERS.indexOf(prayer);
+    return index < snapshot.opened;
+  }
+  if (dateKeyCompare(key, snapshot.key) > 0) return false;
   return true;
 }
 
@@ -431,7 +456,7 @@ function segmentedHTML(key, prayer, compact = false) {
   const log = getLog(key, prayer);
   const enabled = prayerIsLoggable(key, prayer);
   return `<div class="segmented" role="group" aria-label="${prayerDisplayName(prayer, key)} status">
-    ${Object.entries(STATUS_LABELS).map(([status, label]) => `<button type="button" data-mark data-date="${key}" data-prayer="${prayer}" data-status="${status}" class="${log?.status === status ? 'active' : ''}" ${enabled ? '' : 'disabled'} title="${enabled ? `Mark ${label}` : 'Available after this prayer opens and your notebook has started'}">${label}</button>`).join('')}
+    ${Object.entries(STATUS_LABELS).map(([status, label]) => `<button type="button" data-mark data-date="${key}" data-prayer="${prayer}" data-status="${status}" class="${log?.status === status ? 'active' : ''}" ${enabled ? '' : 'disabled'} title="${enabled ? `Mark ${label}` : 'Available after this prayer opens'}">${label}</button>`).join('')}
   </div>`;
 }
 
@@ -449,7 +474,7 @@ function renderToday(snapshot = clockSnapshot()) {
     const state = index < snapshot.opened - 1 ? 'passed' : index === snapshot.opened - 1 ? 'open' : 'upcoming';
     return prayerRowHTML(snapshot.key, prayer, state, snapshot.times);
   }).join('');
-  const started = Boolean(bucket().meta.started_at);
+  const started = Boolean(bucket().meta.started_at) || Object.keys(bucket().logs).length > 0;
   $('#startNotebookCard').hidden = started;
   $('#startNotebookButton').innerHTML = snapshot.currentPrayer
     ? `Start noting from ${prayerDisplayName(snapshot.currentPrayer, snapshot.key)} <span aria-hidden="true">→</span>`
@@ -483,11 +508,11 @@ function aggregateDay(key) {
 }
 
 function renderNotebook() {
-  const started = Boolean(bucket().meta.started_at);
+  const started = Boolean(bucket().meta.started_at) || Object.keys(bucket().logs).length > 0;
   $('#notebookEmpty').hidden = started;
   $('#notebookContent').hidden = !started;
   $('#notingSince').textContent = started
-    ? `Noting since ${shortDate(startedDateKey())}, ${prayerDisplayName(PRAYERS[startPrayerIndex()], startedDateKey())}`
+    ? `Noting since ${shortDate(startedDateKey() || todayKey())}, ${prayerDisplayName(PRAYERS[startPrayerIndex()], startedDateKey() || todayKey())}`
     : 'Not started';
   $('#localOnlyBanner').hidden = Boolean(session);
   $('#deleteAccountButton').hidden = !session;
@@ -504,10 +529,10 @@ function renderNotebook() {
   ].map(([cls, label, value]) => `<div class="stat ${cls}"><span>${label}</span><strong>${typeof value === 'number' ? INDIAN_NUMBER.format(value) : value}</strong></div>`).join('');
 
   const today = todayKey();
-  const startKey = startedDateKey();
+  const startKey = startedDateKey() || today;
   $('#weekStrip').innerHTML = Array.from({ length: 7 }, (_, index) => addDaysToKey(today, index - 6)).map(key => {
     const d = utcDateFromKey(key);
-    const disabled = dateKeyCompare(key, startKey) < 0;
+    const disabled = dateKeyCompare(key, startKey) < 0 && !aggregateDay(key);
     const aggregate = aggregateDay(key);
     return `<button class="day-dot-button" type="button" data-open-day="${key}" ${disabled ? 'disabled' : ''}><small>${WEEKDAY_SHORT.format(d)}</small><span class="day-dot ${aggregate}">${d.getUTCDate()}</span></button>`;
   }).join('');
@@ -520,10 +545,10 @@ function renderCalendar() {
   $('#calendarTitle').textContent = MONTH_LONG.format(first);
   const blanks = Array.from({ length: first.getUTCDay() }, () => '<span></span>').join('');
   const today = todayKey();
-  const start = startedDateKey();
+  const start = startedDateKey() || today;
   const days = Array.from({ length: daysInMonth }, (_, i) => {
     const key = `${calendarCursor.year}-${pad(calendarCursor.month)}-${pad(i + 1)}`;
-    const disabled = !start || dateKeyCompare(key, start) < 0 || dateKeyCompare(key, today) > 0;
+    const disabled = dateKeyCompare(key, today) > 0 || (dateKeyCompare(key, start) < 0 && !aggregateDay(key));
     return `<button type="button" class="calendar-day ${aggregateDay(key)} ${key === today ? 'today' : ''}" data-open-day="${key}" ${disabled ? 'disabled' : ''} aria-label="${longDate(key)}">${i + 1}</button>`;
   }).join('');
   $('#monthCalendar').innerHTML = blanks + days;
@@ -548,18 +573,97 @@ function calculateProfile(now = new Date()) {
   return { ...result, haydDays, haydSlots: haydDays * 5 };
 }
 
+function stepQada(delta) {
+  const today = todayKey();
+  if (delta > 0) {
+    let logged = false;
+    for (const p of PRAYERS) {
+      const l = getLog(today, p);
+      if (l && l.status === 'missed') {
+        markPrayer(today, p, 'qada');
+        logged = true;
+        break;
+      }
+    }
+    if (!logged) {
+      let foundDate = null, foundPrayer = null;
+      for (let d = today; dateKeyCompare(d, '2000-01-01') >= 0; d = addDaysToKey(d, -1)) {
+        for (const p of PRAYERS) {
+          if (!getLog(d, p)) {
+            foundDate = d;
+            foundPrayer = p;
+            break;
+          }
+        }
+        if (foundDate) break;
+      }
+      if (foundDate && foundPrayer) {
+        if (!bucket().meta.started_at) {
+          bucket().meta.started_at = new Date().toISOString();
+          syncMeta();
+        }
+        setLocalLog(foundDate, foundPrayer, 'qada');
+        renderToday();
+        renderNotebook();
+        renderTaklif();
+        flushQueue();
+        showToast(`1 Qada recorded (${prayerDisplayName(foundPrayer, foundDate)}, ${shortDate(foundDate)}). Backlog reduced!`, () => {
+          removeLocalLog(foundDate, foundPrayer);
+          renderToday(); renderNotebook(); renderTaklif(); flushQueue();
+        }, 6000);
+      }
+    }
+  } else if (delta < 0) {
+    const qadaLogs = Object.values(bucket().logs).filter(l => l.status === 'qada').sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+    if (qadaLogs.length) {
+      const target = qadaLogs[0];
+      removeLocalLog(target.log_date, target.prayer);
+      renderToday();
+      renderNotebook();
+      renderTaklif();
+      flushQueue();
+      showToast('1 Qada mark removed.', null, 4000);
+    }
+  }
+}
+
 function renderTaklif() {
   const result = calculateProfile();
   const host = $('#taklifResults');
+  const formContainer = $('#taklifFormContainer');
+  const editBtn = $('#editTaklifButton');
+  const cancelBtn = $('#cancelTaklifEdit');
+  const taklifGrid = $('.taklif-grid');
+
   if (!result) {
+    if (formContainer) formContainer.hidden = false;
+    if (editBtn) editBtn.hidden = true;
+    if (cancelBtn) cancelBtn.hidden = true;
+    if (taklifGrid) taklifGrid.classList.remove('full-mode');
     host.innerHTML = '<p class="empty-state">Add your birth date to reveal your personal accountability clock.</p>';
     return;
   }
+
+  if (editBtn) {
+    editBtn.hidden = false;
+    editBtn.textContent = isEditingTaklif ? 'Close editor' : 'Edit details';
+  }
+  if (cancelBtn) cancelBtn.hidden = !isEditingTaklif;
+  if (formContainer) formContainer.hidden = !isEditingTaklif;
+  if (taklifGrid) {
+    if (isEditingTaklif) taklifGrid.classList.remove('full-mode');
+    else taklifGrid.classList.add('full-mode');
+  }
+
   const stats = statsFromLogs();
   const profile = bucket().profile;
+  let modeLabel = 'Age 13 · average estimate';
+  if (profile.mode === '15lunar') modeLabel = '15 lunar years · 5,316 days';
+  else if (profile.mode === 'custom') modeLabel = 'Exact puberty date';
+
   let backlogHTML = '';
-  if (bucket().meta.started_at) {
-    const start = parseISODate(startedDateKey());
+  if (bucket().meta.started_at || Object.keys(bucket().logs).length > 0) {
+    const start = parseISODate(startedDateKey() || todayKey());
     const historicalDays = Math.max(0, Math.round((start.ms - result.pubertyMs) / DAY));
     const historicalHayd = profile.haydExclude ? estimatedHaydDays(historicalDays, Number(profile.cycleDays), Number(profile.periodDays)) * 5 : 0;
     const slotsBeforeNoting = Math.max(0, historicalDays * 5 - historicalHayd);
@@ -569,12 +673,25 @@ function renderTaklif() {
       <h3>Optional qada estimate</h3>
       <p>${INDIAN_NUMBER.format(slotsBeforeNoting)} eligible slots existed before your notebook. Estimate how many you had prayed; this is a private planning aid, not a ruling.</p>
       <label class="field"><span>Estimated past prayed: <b id="pastPctLabel">${pct}%</b></span><input id="pastPrayedRange" type="range" min="0" max="100" step="1" value="${pct}" data-base="${slotsBeforeNoting}" data-qada="${stats.qada}"></label>
-      <div class="backlog-output"><span>Calm chip-away counter</span><strong id="backlogValue">${INDIAN_NUMBER.format(estimatedToMakeUp)}</strong></div>
+      <div class="chipaway-stepper-wrap">
+        <div class="stepper-col-left">
+          <span>Calm chip-away counter</span>
+          <strong id="backlogValue">${INDIAN_NUMBER.format(estimatedToMakeUp)}</strong>
+        </div>
+        <div class="stepper-controls">
+          <button id="qadaDecrementBtn" class="stepper-btn" type="button" title="Remove 1 Qada mark" ${stats.qada <= 0 ? 'disabled' : ''} aria-label="Remove 1 Qada mark">−</button>
+          <button id="qadaIncrementBtn" class="stepper-btn" type="button" title="Log 1 Qada prayed (+1 Qada mark, decreases backlog)" ${estimatedToMakeUp <= 0 ? 'disabled' : ''} aria-label="Log 1 Qada prayed">+</button>
+        </div>
+      </div>
       <p class="hope-copy">Slots that existed are history. The next one is yours.</p>
     </div>`;
   }
   const eligibleSlots = Math.max(0, result.slots - result.haydSlots);
-  host.innerHTML = `<p class="taklif-result-label">Accountable since</p>
+  host.innerHTML = `<div class="taklif-active-header">
+      <span class="taklif-active-badge">Accountability Clock Active</span>
+      <small style="color: var(--muted); font-size: 0.7rem;">${modeLabel}</small>
+    </div>
+    <p class="taklif-result-label">Accountable since</p>
     <p class="taklif-date">${DATE_LONG.format(result.pubertyDate)}${profile.dobEstimated ? ' · estimated' : ''}</p>
     <p class="taklif-result-label">Farz slots that existed for you</p>
     <div class="result-number">${INDIAN_NUMBER.format(eligibleSlots)}</div>
@@ -585,6 +702,7 @@ function renderTaklif() {
     </div>
     ${profile.haydExclude ? `<p class="hayd-result">Estimated hayd exclusion: <strong>${INDIAN_NUMBER.format(result.haydDays)} days · ${INDIAN_NUMBER.format(result.haydSlots)} slots</strong>. These are excluded, never labelled missed, and never qada.</p>` : ''}
     ${backlogHTML}`;
+
   const range = $('#pastPrayedRange');
   if (range) {
     range.addEventListener('input', () => {
@@ -592,6 +710,8 @@ function renderTaklif() {
       $('#pastPctLabel').textContent = `${pct}%`;
       const remaining = Math.max(0, Math.round(Number(range.dataset.base) * (1 - pct / 100)) - Number(range.dataset.qada));
       $('#backlogValue').textContent = INDIAN_NUMBER.format(remaining);
+      const inc = $('#qadaIncrementBtn');
+      if (inc) inc.disabled = remaining <= 0;
     });
     range.addEventListener('change', () => {
       profile.pastPrayedPct = Number(range.value);
@@ -600,6 +720,10 @@ function renderTaklif() {
       syncProfile();
     });
   }
+  const incBtn = $('#qadaIncrementBtn');
+  if (incBtn) incBtn.onclick = () => stepQada(1);
+  const decBtn = $('#qadaDecrementBtn');
+  if (decBtn) decBtn.onclick = () => stepQada(-1);
 }
 
 function populateProfileForm() {
@@ -647,6 +771,10 @@ function removeLocalLog(date, prayer, updatedAt = new Date().toISOString(), shou
 
 function markPrayer(date, prayer, status, { allowUndo = true } = {}) {
   if (!PRAYERS.includes(prayer) || !STATUS_LABELS[status] || !prayerIsLoggable(date, prayer)) return;
+  if (!bucket().meta.started_at) {
+    bucket().meta.started_at = new Date().toISOString();
+    syncMeta();
+  }
   const previous = getLog(date, prayer) ? { ...getLog(date, prayer) } : null;
   setLocalLog(date, prayer, status);
   renderToday();
@@ -863,10 +991,12 @@ function submitTaklif(event) {
     periodDays: Number($('#periodDays').value) || 7,
     updated_at: new Date().toISOString()
   });
+  isEditingTaklif = false;
   saveRoot();
   populateProfileForm();
   renderTaklif();
   syncProfile();
+  showToast('Accountability clock calculated & saved.', null, 4000);
   $('#taklifResults').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'nearest' });
 }
 
@@ -945,15 +1075,10 @@ async function migrateLocalIfNeeded(uid) {
   const local = normalizeBucket(root.buckets.local);
   const markCount = Object.keys(local.logs).length;
   const hasLocalRecord = markCount > 0 || Boolean(local.meta.started_at) || Boolean(local.profile.dob);
-  let shouldUpload = false;
   if (hasLocalRecord) {
-    const since = local.meta.started_at ? ` since ${shortDate(todayKey(new Date(local.meta.started_at)))}` : '';
-    shouldUpload = confirm(`Found your record on this device (${markCount} marks${since}). Upload it to your account?\n\nChoose OK to merge it safely with this account. Choose Cancel to leave the local record untouched.`);
-  }
-  if (shouldUpload) {
     mergeBucketInto(local, bucket());
     saveRoot();
-    await uploadCurrentBucket();
+    await uploadCurrentBucket().catch(console.warn);
   }
   root.migrations[uid] = true;
   saveRoot();
@@ -1058,9 +1183,12 @@ async function pullRemote() {
   const remoteStart = metaResult.data?.started_at;
   if (remoteStart && (!b.meta.started_at || new Date(remoteStart) < new Date(b.meta.started_at))) b.meta.started_at = remoteStart;
 
-  // Cloud is authoritative after sign-in, except for cells in the durable local
-  // queue. This also propagates deletions that happened while this device was
-  // offline and therefore missed the realtime event.
+  if (!b.meta.started_at && logs.length > 0) {
+    const earliest = logs[0].log_date;
+    b.meta.started_at = new Date(`${earliest}T00:00:00Z`).toISOString();
+    syncMeta();
+  }
+
   const remoteKeys = new Set(logs.map(log => `${log.log_date}|${log.prayer}`));
   const pendingKeys = new Set(b.queue.map(item => `${item.log_date}|${item.prayer}`));
   for (const localKey of Object.keys(b.logs)) {
@@ -1253,6 +1381,8 @@ function wireEvents() {
   $('#authButton').addEventListener('click', () => $('#authDialog').showModal());
   $('#syncPill').addEventListener('click', () => { if (!session) $('#authDialog').showModal(); else flushQueue(); });
   $('#taklifForm').addEventListener('submit', submitTaklif);
+  $('#editTaklifButton')?.addEventListener('click', () => { isEditingTaklif = !isEditingTaklif; renderTaklif(); });
+  $('#cancelTaklifEdit')?.addEventListener('click', () => { isEditingTaklif = false; populateProfileForm(); renderTaklif(); });
   $$('input[name="taklifMode"]').forEach(input => input.addEventListener('change', updateProfileModeUI));
   $('#dobInput').addEventListener('input', () => { if ($('#dobInput').value) $('#birthYearInput').value = ''; $('#dobEstimateNote').hidden = true; });
   $('#birthYearInput').addEventListener('input', () => { if ($('#birthYearInput').value) $('#dobInput').value = ''; $('#dobEstimateNote').hidden = !$('#birthYearInput').value; });
@@ -1309,6 +1439,8 @@ async function boot() {
   populateSettingsForm();
   populateProfileForm();
   renderAll();
+  const snapshot = clockSnapshot();
+  renderOdometer(snapshot.count, false, true);
   setInterval(() => updateClock(), 1000);
   setInterval(() => { if (session) { pullRemote().catch(databaseMayBeWaking); flushQueue(); } }, 60_000);
   await initCloud();
