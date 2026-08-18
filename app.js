@@ -606,10 +606,11 @@ function stepQada(delta) {
         renderToday();
         renderNotebook();
         renderTaklif();
+        renderReport();
         flushQueue();
         showToast(`1 Qada recorded (${prayerDisplayName(foundPrayer, foundDate)}, ${shortDate(foundDate)}). Backlog reduced!`, () => {
           removeLocalLog(foundDate, foundPrayer);
-          renderToday(); renderNotebook(); renderTaklif(); flushQueue();
+          renderToday(); renderNotebook(); renderTaklif(); renderReport(); flushQueue();
         }, 6000);
       }
     }
@@ -621,6 +622,7 @@ function stepQada(delta) {
       renderToday();
       renderNotebook();
       renderTaklif();
+      renderReport();
       flushQueue();
       showToast('1 Qada mark removed.', null, 4000);
     }
@@ -718,6 +720,7 @@ function renderTaklif() {
       profile.updated_at = new Date().toISOString();
       saveRoot();
       syncProfile();
+      renderReport();
     });
   }
   const incBtn = $('#qadaIncrementBtn');
@@ -743,6 +746,7 @@ function renderAll() {
   populateProfileForm();
   renderTaklif();
   renderNotebook();
+  renderReport();
   updateAuthUI();
   updateClock();
 }
@@ -780,6 +784,7 @@ function markPrayer(date, prayer, status, { allowUndo = true } = {}) {
   renderToday();
   renderNotebook();
   renderTaklif();
+  renderReport();
   if (openDayKey) renderDayDialog(openDayKey);
   if (allowUndo) {
     undoState = { date, prayer, previous };
@@ -794,7 +799,7 @@ function undoLastMark() {
   undoState = null;
   if (previous) setLocalLog(date, prayer, previous.status);
   else removeLocalLog(date, prayer);
-  renderToday(); renderNotebook(); renderTaklif();
+  renderToday(); renderNotebook(); renderTaklif(); renderReport();
   if (openDayKey) renderDayDialog(openDayKey);
   flushQueue();
   hideToast();
@@ -826,6 +831,17 @@ function dateRange(fromKey, toKey) {
   return out;
 }
 
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function exportCSV() {
   const start = startedDateKey();
   const dates = start ? dateRange(start, todayKey()) : [...new Set(Object.values(bucket().logs).map(log => log.log_date))].sort();
@@ -833,15 +849,7 @@ function exportCSV() {
   for (const date of dates) {
     lines.push([date, ...PRAYERS.map(prayer => getLog(date, prayer)?.status || '')].map(escapeCSV).join(','));
   }
-  const blob = new Blob([`\uFEFF${lines.join('\r\n')}`], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = `mihrab-backup-${todayKey()}.csv`;
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadBlob(new Blob([`\uFEFF${lines.join('\r\n')}`], { type: 'text/csv;charset=utf-8' }), `mihrab-backup-${todayKey()}.csv`);
   bucket().lastExport = new Date().toISOString();
   saveRoot();
   renderNotebook();
@@ -860,7 +868,8 @@ async function resetNotebook() {
     setSyncPill('syncing');
     const [{ error: logsError }, { error: metaError }] = await Promise.all([
       sb.from('prayer_logs').delete().eq('user_id', session.user.id),
-      sb.from('notebook_meta').delete().eq('user_id', session.user.id)
+      sb.from('notebook_meta').delete().eq('user_id', session.user.id),
+      sb.from('monthly_reports').delete().eq('user_id', session.user.id)
     ]);
     if (logsError || metaError) showToast('Cloud reset is waiting. Please try again while online.', null, 7000);
   }
@@ -995,6 +1004,7 @@ function submitTaklif(event) {
   saveRoot();
   populateProfileForm();
   renderTaklif();
+  renderReport();
   syncProfile();
   showToast('Accountability clock calculated & saved.', null, 4000);
   $('#taklifResults').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'nearest' });
@@ -1063,6 +1073,7 @@ async function handleSession(nextSession) {
     await pullRemote();
     subscribeRealtime(uid);
     await flushQueue();
+    await syncMonthlyReports();
   } catch (error) {
     console.error(error);
     databaseMayBeWaking();
@@ -1073,8 +1084,7 @@ async function handleSession(nextSession) {
 async function migrateLocalIfNeeded(uid) {
   if (root.migrations[uid]) return;
   const local = normalizeBucket(root.buckets.local);
-  const markCount = Object.keys(local.logs).length;
-  const hasLocalRecord = markCount > 0 || Boolean(local.meta.started_at) || Boolean(local.profile.dob);
+  const hasLocalRecord = Object.keys(local.logs).length > 0 || Boolean(local.meta.started_at) || Boolean(local.profile.dob);
   if (hasLocalRecord) {
     mergeBucketInto(local, bucket());
     saveRoot();
@@ -1104,6 +1114,9 @@ function profileRow() {
     hayd_exclude: Boolean(p.haydExclude),
     cycle_days: Number(p.cycleDays),
     period_days: Number(p.periodDays),
+    past_prayed_pct: clamp(Number(p.pastPrayedPct) || 0, 0, 100),
+    dob_estimated: Boolean(p.dobEstimated),
+    birth_year: p.birthYear || '',
     updated_at: p.updated_at || new Date().toISOString()
   };
 }
@@ -1167,6 +1180,8 @@ async function pullRemote() {
       ...b.profile,
       dob: rp.dob || '', mode: rp.mode, customPuberty: rp.custom_puberty || '',
       haydExclude: rp.hayd_exclude, cycleDays: Number(rp.cycle_days), periodDays: Number(rp.period_days),
+      pastPrayedPct: Number(rp.past_prayed_pct) || 0,
+      dobEstimated: Boolean(rp.dob_estimated), birthYear: rp.birth_year || '',
       updated_at: rp.updated_at
     };
   }
@@ -1189,6 +1204,9 @@ async function pullRemote() {
     syncMeta();
   }
 
+  // Cloud is authoritative after sign-in, except for cells in the durable local
+  // queue. This also propagates deletions that happened while this device was
+  // offline and therefore missed the realtime event.
   const remoteKeys = new Set(logs.map(log => `${log.log_date}|${log.prayer}`));
   const pendingKeys = new Set(b.queue.map(item => `${item.log_date}|${item.prayer}`));
   for (const localKey of Object.keys(b.logs)) {
@@ -1205,7 +1223,7 @@ function applyRemoteLog(log, save = true) {
   const key = `${log.log_date}|${log.prayer}`;
   const local = bucket().logs[key];
   if (!local || new Date(log.updated_at) >= new Date(local.updated_at)) bucket().logs[key] = { log_date: log.log_date, prayer: log.prayer, status: log.status, updated_at: log.updated_at };
-  if (save) { saveRoot(); renderToday(); renderNotebook(); renderTaklif(); }
+  if (save) { saveRoot(); renderToday(); renderNotebook(); renderTaklif(); renderReport(); }
 }
 
 function subscribeRealtime(uid) {
@@ -1216,7 +1234,7 @@ function subscribeRealtime(uid) {
       if (payload.eventType === 'DELETE') {
         const old = payload.old;
         if (old?.log_date && old?.prayer) delete bucket().logs[`${old.log_date}|${old.prayer}`];
-        saveRoot(); renderToday(); renderNotebook(); renderTaklif();
+        saveRoot(); renderToday(); renderNotebook(); renderTaklif(); renderReport();
       } else applyRemoteLog(payload.new);
     }).subscribe();
 }
@@ -1314,6 +1332,8 @@ function updateAuthUI() {
   $('#authButton').textContent = session ? 'Account' : 'Sign in';
   $('#localOnlyBanner').hidden = Boolean(session);
   $('#deleteAccountButton').hidden = !session;
+  const reportNote = $('#reportSignInNote');
+  if (reportNote) reportNote.hidden = Boolean(session);
   if (session) {
     $('.signed-in-email').textContent = session.user.email || 'Signed in';
     $('#privacyFooter').textContent = 'Your notebook is locally cached and privately synced to your account with Row Level Security.';
@@ -1357,6 +1377,189 @@ async function deleteAccount() {
   saveRoot();
   renderAll();
   showToast('Your cloud account was deleted. The downloaded CSV is your backup.', null, 8000);
+}
+
+/* ---------- Report: master ledger, per-prayer, planner, monthly ---------- */
+
+const REPORT_PACES = [1, 2, 5, 10, 20];
+
+function qadaEstimate() {
+  const result = calculateProfile();
+  const profile = bucket().profile;
+  const stats = statsFromLogs();
+  const startKey = startedDateKey() || todayKey();
+  const eligibleSlots = result ? Math.max(0, result.slots - result.haydSlots) : 0;
+  let slotsBefore = 0;
+  if (result) {
+    const start = parseISODate(startKey);
+    const historicalDays = Math.max(0, Math.round((start.ms - result.pubertyMs) / DAY));
+    const historicalHayd = profile.haydExclude ? estimatedHaydDays(historicalDays, Number(profile.cycleDays), Number(profile.periodDays)) * 5 : 0;
+    slotsBefore = Math.max(0, historicalDays * 5 - historicalHayd);
+  }
+  const pct = clamp(Number(profile.pastPrayedPct) || 0, 0, 100);
+  const estPastPrayed = Math.round(slotsBefore * pct / 100);
+  const backlog = Math.max(0, slotsBefore - estPastPrayed - stats.qada);
+  return { eligibleSlots, slotsBefore, pct, estPastPrayed, backlog, stats, result, startKey };
+}
+
+function perPrayerRows(q) {
+  return PRAYERS.map(prayer => {
+    const p = { prayed: 0, missed: 0, qada: 0 };
+    for (const log of Object.values(bucket().logs)) {
+      if (log.prayer === prayer && p[log.status] !== undefined) p[log.status]++;
+    }
+    const share = Math.ceil(q.slotsBefore / 5);
+    const estShare = Math.round(share * q.pct / 100);
+    const owed = Math.max(0, share - estShare - p.qada);
+    const done = p.prayed + p.qada;
+    const total = done + p.missed + owed;
+    return { prayer, ...p, owed, done, total, completion: total ? (done / total) * 100 : 0 };
+  });
+}
+
+function qadaPlannerRows(backlog) {
+  const today = todayKey();
+  return REPORT_PACES.map(perDay => {
+    const days = Math.ceil(backlog / perDay);
+    const finish = backlog > 0 ? addDaysToKey(today, days) : null;
+    const years = days / 365.2425;
+    const yearsText = years >= 1 ? `${years.toFixed(1)} yrs` : `${Math.max(1, Math.round(days / 30.44))} mo`;
+    return { perDay, days, finish, yearsText };
+  });
+}
+
+function monthlyRollups() {
+  const months = {};
+  for (const log of Object.values(bucket().logs)) {
+    const key = log.log_date.slice(0, 7);
+    months[key] ||= { month: key, prayed: 0, missed: 0, qada: 0, days: new Set() };
+    if (months[key][log.status] !== undefined) months[key][log.status]++;
+    months[key].days.add(log.log_date);
+  }
+  return Object.values(months)
+    .map(m => ({ month: m.month, prayed: m.prayed, missed: m.missed, qada: m.qada, days: m.days.size, completion: (m.prayed + m.missed) ? ((m.prayed + m.qada) / (m.prayed + m.missed)) * 100 : 0 }))
+    .sort((a, b) => b.month.localeCompare(a.month));
+}
+
+function renderReport() {
+  const host = $('#reportContent');
+  if (!host) return;
+  const q = qadaEstimate();
+  const started = Boolean(bucket().meta.started_at) || Object.keys(bucket().logs).length > 0;
+  const note = $('#reportSignInNote');
+  if (note) note.hidden = Boolean(session);
+  if (!q.result && !started) {
+    host.hidden = true;
+    $('#reportEmpty').hidden = false;
+    return;
+  }
+  $('#reportEmpty').hidden = true;
+  host.hidden = false;
+
+  $('#reportGenerated').textContent = `Generated ${DATE_LONG.format(utcDateFromKey(todayKey()))} · ${q.result ? `accountable since ${DATE_LONG.format(q.result.pubertyDate)}` : 'add your birth date for the full ledger'}`;
+
+  $('#ledgerGrid').innerHTML = [
+    ['Accountable slots', q.result ? INDIAN_NUMBER.format(q.eligibleSlots) : '—'],
+    ['Before the notebook', INDIAN_NUMBER.format(q.slotsBefore)],
+    [`Est. prayed then (${q.pct}%)`, INDIAN_NUMBER.format(q.estPastPrayed)],
+    ['Notebook prayed', INDIAN_NUMBER.format(q.stats.prayed)],
+    ['Notebook missed', INDIAN_NUMBER.format(q.stats.missed)],
+    ['Qada repaid', INDIAN_NUMBER.format(q.stats.qada)]
+  ].map(([label, value]) => `<div class="ledger-cell"><span>${label}</span><strong>${value}</strong></div>`).join('');
+
+  $('#backlogBig').textContent = INDIAN_NUMBER.format(q.backlog);
+  const lifetime = q.stats.prayed + q.stats.qada + q.estPastPrayed;
+  $('#lifetimeShare').textContent = q.eligibleSlots ? `${Math.min(100, (lifetime / q.eligibleSlots) * 100).toFixed(1)}% lifetime cleared` : '—';
+
+  $('#perPrayerTable').innerHTML = `<table class="report-table">
+    <thead><tr><th>Prayer</th><th>Prayed</th><th>Missed</th><th>Qada done</th><th>Qada left</th><th>Completion</th></tr></thead>
+    <tbody>${perPrayerRows(q).map(r => `<tr>
+      <td>${PRAYER_LABELS[r.prayer]}</td><td>${INDIAN_NUMBER.format(r.prayed)}</td><td>${INDIAN_NUMBER.format(r.missed)}</td>
+      <td>${INDIAN_NUMBER.format(r.qada)}</td><td>${INDIAN_NUMBER.format(r.owed)}</td><td>${r.completion.toFixed(1)}%</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+
+  $('#plannerTable').innerHTML = `<table class="report-table">
+    <thead><tr><th>Extra qada / day</th><th>Days needed</th><th>Time</th><th>Finish date</th></tr></thead>
+    <tbody>${qadaPlannerRows(q.backlog).map(r => `<tr>
+      <td>${r.perDay}</td><td>${INDIAN_NUMBER.format(r.days)}</td><td>${r.yearsText}</td>
+      <td>${r.finish ? shortDate(r.finish) : 'Clear ✓'}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+
+  const rollups = monthlyRollups();
+  $('#monthlyTable').innerHTML = rollups.length ? `<table class="report-table">
+    <thead><tr><th>Month</th><th>Days noted</th><th>Prayed</th><th>Missed</th><th>Qada</th><th>Completion</th></tr></thead>
+    <tbody>${rollups.map(m => `<tr>
+      <td>${m.month}</td><td>${m.days}</td><td>${m.prayed}</td><td>${m.missed}</td><td>${m.qada}</td><td>${m.completion.toFixed(1)}%</td>
+    </tr>`).join('')}</tbody>
+  </table>` : '<p class="report-empty-line">Monthly rows appear after your first mark.</p>';
+}
+
+function reportSnapshotPayload() {
+  const q = qadaEstimate();
+  return {
+    generated_at: new Date().toISOString(),
+    accountable_slots: q.eligibleSlots,
+    slots_before_notebook: q.slotsBefore,
+    past_prayed_pct: q.pct,
+    est_past_prayed: q.estPastPrayed,
+    prayed: q.stats.prayed,
+    missed: q.stats.missed,
+    qada_done: q.stats.qada,
+    backlog: q.backlog,
+    per_prayer: perPrayerRows(q).map(({ completion, ...r }) => r),
+    monthly: monthlyRollups()
+  };
+}
+
+async function saveReportSnapshot() {
+  if (!session || !sb) { $('#authDialog').showModal(); return; }
+  setSyncPill('syncing');
+  const { error } = await sb.from('report_snapshots').insert({
+    user_id: session.user.id,
+    label: `Report · ${DATE_SHORT.format(utcDateFromKey(todayKey()))}`,
+    payload: reportSnapshotPayload()
+  });
+  if (error) { databaseMayBeWaking(); showToast('Report save is waiting. Try again while online.', null, 6000); return; }
+  setSyncPill('synced');
+  showToast('Report snapshot saved to your account.', null, 5000);
+}
+
+async function syncMonthlyReports() {
+  if (!session || !sb || !navigator.onLine) return;
+  const rows = monthlyRollups().map(m => ({
+    user_id: session.user.id, month: `${m.month}-01`,
+    prayed: m.prayed, missed: m.missed, qada: m.qada, noted_days: m.days,
+    updated_at: new Date().toISOString()
+  }));
+  if (!rows.length) return;
+  const { error } = await sb.from('monthly_reports').upsert(rows);
+  if (error) databaseMayBeWaking();
+}
+
+function exportReportCSV() {
+  const q = qadaEstimate();
+  const lines = [
+    ['section', 'key', 'value'].join(','),
+    ['ledger', 'accountable_slots', q.eligibleSlots].join(','),
+    ['ledger', 'slots_before_notebook', q.slotsBefore].join(','),
+    ['ledger', 'est_past_prayed_pct', q.pct].join(','),
+    ['ledger', 'est_past_prayed', q.estPastPrayed].join(','),
+    ['ledger', 'notebook_prayed', q.stats.prayed].join(','),
+    ['ledger', 'notebook_missed', q.stats.missed].join(','),
+    ['ledger', 'qada_repaid', q.stats.qada].join(','),
+    ['ledger', 'qada_backlog', q.backlog].join(','),
+    ...perPrayerRows(q).map(r => ['per_prayer', r.prayer, `prayed=${r.prayed};missed=${r.missed};qada=${r.qada};left=${r.owed}`].map(escapeCSV).join(',')),
+    ...monthlyRollups().map(m => ['monthly', m.month, `prayed=${m.prayed};missed=${m.missed};qada=${m.qada}`].map(escapeCSV).join(','))
+  ];
+  downloadBlob(new Blob([`\uFEFF${lines.join('\r\n')}`], { type: 'text/csv;charset=utf-8' }), `mihrab-report-${todayKey()}.csv`);
+  showToast('Report CSV downloaded.', null, 4000);
+}
+
+function printReport() {
+  renderReport();
+  window.print();
 }
 
 /* ---------- Event wiring ---------- */
@@ -1403,6 +1606,9 @@ function wireEvents() {
     if (calendarCursor.month > 12) { calendarCursor.month = 1; calendarCursor.year++; }
     renderCalendar();
   });
+  $('#saveReportButton')?.addEventListener('click', saveReportSnapshot);
+  $('#exportReportButton')?.addEventListener('click', exportReportCSV);
+  $('#printReportButton')?.addEventListener('click', printReport);
   $('#resetButton').addEventListener('click', resetNotebook);
   $('#deleteAccountButton').addEventListener('click', deleteAccount);
   $('#undoButton').addEventListener('click', undoLastMark);
@@ -1442,7 +1648,7 @@ async function boot() {
   const snapshot = clockSnapshot();
   renderOdometer(snapshot.count, false, true);
   setInterval(() => updateClock(), 1000);
-  setInterval(() => { if (session) { pullRemote().catch(databaseMayBeWaking); flushQueue(); } }, 60_000);
+  setInterval(() => { if (session) { pullRemote().catch(databaseMayBeWaking); flushQueue(); syncMonthlyReports(); } }, 60_000);
   await initCloud();
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('sw.js').catch(error => console.info('Service worker unavailable:', error.message));
