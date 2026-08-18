@@ -1,4 +1,4 @@
-const CACHE = 'mihrab-static-v1';
+const CACHE = 'mihrab-static-v2';
 const CORE = ['./', './index.html', './styles.css', './app.js', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', event => {
