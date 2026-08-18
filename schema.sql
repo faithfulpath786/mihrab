@@ -1,5 +1,7 @@
 -- MIHRAB — Supabase schema, indexes, trigger, RLS and self-service deletion
 -- Run this entire file in Supabase Dashboard > SQL Editor before connecting the app.
+-- v2: adds report persistence. Re-running the whole file is safe — every
+-- statement is idempotent (if not exists / add column if not exists / drop+create policy).
 
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -12,6 +14,11 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- v2 columns for existing deployments (no-ops on fresh ones).
+alter table public.profiles add column if not exists past_prayed_pct numeric not null default 0;
+alter table public.profiles add column if not exists dob_estimated boolean not null default false;
+alter table public.profiles add column if not exists birth_year text not null default '';
 
 create table if not exists public.settings (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -40,6 +47,29 @@ create table if not exists public.prayer_logs (
 
 create index if not exists prayer_logs_user_date on public.prayer_logs (user_id, log_date desc);
 
+-- v2: monthly rollups, auto-synced from the app.
+create table if not exists public.monthly_reports (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  month date not null,
+  prayed int not null default 0,
+  missed int not null default 0,
+  qada int not null default 0,
+  noted_days int not null default 0,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, month)
+);
+
+-- v2: on-demand full report snapshots.
+create table if not exists public.report_snapshots (
+  id bigint generated always as identity primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  label text not null default '',
+  payload jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists report_snapshots_user_created on public.report_snapshots (user_id, created_at desc);
+
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -62,12 +92,16 @@ alter table public.profiles enable row level security;
 alter table public.settings enable row level security;
 alter table public.notebook_meta enable row level security;
 alter table public.prayer_logs enable row level security;
+alter table public.monthly_reports enable row level security;
+alter table public.report_snapshots enable row level security;
 
 -- Re-runnable policy creation.
 drop policy if exists "own profile" on public.profiles;
 drop policy if exists "own settings" on public.settings;
 drop policy if exists "own meta" on public.notebook_meta;
 drop policy if exists "own logs" on public.prayer_logs;
+drop policy if exists "own monthly" on public.monthly_reports;
+drop policy if exists "own snapshots" on public.report_snapshots;
 
 create policy "own profile" on public.profiles
   for all using (auth.uid() = id) with check (auth.uid() = id);
@@ -76,6 +110,10 @@ create policy "own settings" on public.settings
 create policy "own meta" on public.notebook_meta
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "own logs" on public.prayer_logs
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "own monthly" on public.monthly_reports
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "own snapshots" on public.report_snapshots
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- Allows an authenticated user to delete only their own auth row. The foreign
