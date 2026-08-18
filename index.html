@@ -186,6 +186,7 @@
               <div><h3>Your data</h3><p>Keep a copy you control. CSV opens in any spreadsheet.</p></div>
               <div class="button-row">
                 <button class="secondary-button" type="button" data-export>Export CSV</button>
+                <button class="secondary-button" type="button" data-scroll="#report">Full report <span aria-hidden="true">→</span></button>
                 <button id="deleteAccountButton" class="secondary-button danger" type="button" hidden>Delete account</button>
                 <button id="resetButton" class="secondary-button danger" type="button">Reset notebook</button>
               </div>
@@ -201,6 +202,57 @@
             <div id="monthCalendar" class="month-calendar"></div>
             <div class="calendar-legend"><span><i class="prayed"></i>Prayed</span><span><i class="missed"></i>Missed</span><span><i class="qada"></i>Qada</span><span><i></i>No mark</span></div>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="report" class="section report-section" aria-labelledby="report-title">
+      <div class="section-heading">
+        <div>
+          <p class="section-kicker">Every slot, accounted</p>
+          <h2 id="report-title">Report</h2>
+        </div>
+        <p id="reportGenerated" class="section-aside"></p>
+      </div>
+
+      <div id="reportSignInNote" class="notice-banner report-note">
+        <div><strong>Reports save to your cloud account.</strong><span>Sign in and every snapshot and monthly rollup syncs with Row Level Security.</span></div>
+        <button class="secondary-button" type="button" data-open-auth>Sign in</button>
+      </div>
+
+      <div id="reportEmpty" class="report-empty">
+        <p class="empty-state">Add your birth date and start the notebook — your full ledger appears here.</p>
+      </div>
+
+      <div id="reportContent" hidden>
+        <div class="report-ledger panel">
+          <div class="backlog-hero">
+            <span>Calm chip-away counter</span>
+            <strong id="backlogBig">0</strong>
+            <small id="lifetimeShare">—</small>
+          </div>
+          <div id="ledgerGrid" class="ledger-grid"></div>
+          <div class="report-actions">
+            <button id="saveReportButton" class="primary-button" type="button">Save snapshot to account</button>
+            <button id="exportReportButton" class="secondary-button" type="button">Report CSV</button>
+            <button id="printReportButton" class="secondary-button" type="button">Print / PDF</button>
+          </div>
+        </div>
+
+        <div class="report-block panel">
+          <h3 class="report-block-title">Prayer by prayer</h3>
+          <div id="perPrayerTable" class="table-scroll"></div>
+        </div>
+
+        <div class="report-block panel">
+          <h3 class="report-block-title">Qada planner</h3>
+          <p class="report-block-note">Pick a pace you can actually keep. One extra set a day clears the past without crushing the present.</p>
+          <div id="plannerTable" class="table-scroll"></div>
+        </div>
+
+        <div class="report-block panel">
+          <h3 class="report-block-title">Month by month</h3>
+          <div id="monthlyTable" class="table-scroll"></div>
         </div>
       </div>
     </section>
